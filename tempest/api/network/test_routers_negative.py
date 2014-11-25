@@ -35,9 +35,6 @@ class RoutersNegativeTest(base.BaseRouterTest):
         cls.router = cls.create_router(data_utils.rand_name('router-'))
         cls.network = cls.create_network()
         cls.subnet = cls.create_subnet(cls.network)
-        cls.tenant_cidr = (CONF.network.tenant_network_cidr
-                           if cls._ip_version == 4 else
-                           CONF.network.tenant_network_v6_cidr)
 
     @test.attr(type=['negative', 'smoke'])
     def test_router_add_gateway_invalid_network_returns_404(self):
@@ -51,7 +48,7 @@ class RoutersNegativeTest(base.BaseRouterTest):
     def test_router_add_gateway_net_not_external_returns_400(self):
         alt_network = self.create_network(
             network_name=data_utils.rand_name('router-negative-'))
-        sub_cidr = netaddr.IPNetwork(self.tenant_cidr).next()
+        sub_cidr = netaddr.IPNetwork(self.tenant_network_cidr).next()
         self.create_subnet(alt_network, cidr=sub_cidr)
         self.assertRaises(lib_exc.BadRequest,
                           self.client.update_router,

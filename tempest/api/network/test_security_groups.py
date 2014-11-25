@@ -25,8 +25,6 @@ CONF = config.CONF
 
 class SecGroupTest(base.BaseSecGroupTest):
 
-    _tenant_network_cidr = CONF.network.tenant_network_cidr
-
     @classmethod
     def resource_setup(cls):
         super(SecGroupTest, cls).resource_setup()
@@ -205,7 +203,7 @@ class SecGroupTest(base.BaseSecGroupTest):
         protocol = 'tcp'
         port_range_min = 76
         port_range_max = 77
-        ip_prefix = self._tenant_network_cidr
+        ip_prefix = self.tenant_network_cidr
         self._create_verify_security_group_rule(sg_id, direction,
                                                 self.ethertype, protocol,
                                                 port_range_min,
@@ -233,4 +231,3 @@ class SecGroupTest(base.BaseSecGroupTest):
 
 class SecGroupIPv6Test(SecGroupTest):
     _ip_version = 6
-    _tenant_network_cidr = CONF.network.tenant_network_v6_cidr

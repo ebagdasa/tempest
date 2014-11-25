@@ -64,6 +64,14 @@ class BaseNetworkTest(tempest.test.BaseTestCase):
             raise cls.skipException("Neutron support is required")
         if cls._ip_version == 6 and not CONF.network_feature_enabled.ipv6:
             raise cls.skipException("IPv6 Tests are disabled.")
+        if cls._ip_version == 4:
+            cls.tenant_network_cidr = CONF.network.tenant_network_cidr
+            cls.tenant_network_mask_bits = (CONF.network.
+                                            tenant_network_mask_bits)
+        else:
+            cls.tenant_network_cidr = CONF.network.tenant_network_v6_cidr
+            cls.tenant_network_mask_bits = (CONF.network.
+                                            tenant_network_v6_mask_bits)
 
         os = cls.get_client_manager()
 
@@ -192,7 +200,8 @@ class BaseNetworkTest(tempest.test.BaseTestCase):
 
     @classmethod
     def create_subnet(cls, network, gateway='', cidr=None, mask_bits=None,
-                      ip_version=None, client=None, **kwargs):
+                      ip_version=None, client=None, set_gateway=True,
+                      **kwargs):
         """Wrapper utility that returns a test subnet."""
 
         # allow tests to use admin client
@@ -200,28 +209,32 @@ class BaseNetworkTest(tempest.test.BaseTestCase):
             client = cls.client
 
         # The cidr and mask_bits depend on the ip version.
-        ip_version = ip_version if ip_version is not None else cls._ip_version
+        ip_version = ip_version or cls._ip_version
         gateway_not_set = gateway == ''
         if ip_version == 4:
             cidr = cidr or netaddr.IPNetwork(CONF.network.tenant_network_cidr)
             mask_bits = mask_bits or CONF.network.tenant_network_mask_bits
         elif ip_version == 6:
             cidr = (
-                cidr or netaddr.IPNetwork(CONF.network.tenant_network_v6_cidr))
+                cidr or netaddr.IPNetwork(
+                    CONF.network.tenant_network_v6_cidr))
             mask_bits = mask_bits or CONF.network.tenant_network_v6_mask_bits
         # Find a cidr that is not in use yet and create a subnet with it
+        subnet_kwargs = {
+            "network_id": network['id'],
+            "ip_version": ip_version,
+        }
+        subnet_kwargs.update(kwargs)
         for subnet_cidr in cidr.subnet(mask_bits):
+            subnet_kwargs['cidr'] = str(subnet_cidr)
             if gateway_not_set:
                 gateway_ip = str(netaddr.IPAddress(subnet_cidr) + 1)
             else:
                 gateway_ip = gateway
+            if set_gateway:
+                subnet_kwargs['gateway_ip'] = gateway_ip
             try:
-                body = client.create_subnet(
-                    network_id=network['id'],
-                    cidr=str(subnet_cidr),
-                    ip_version=ip_version,
-                    gateway_ip=gateway_ip,
-                    **kwargs)
+                body = client.create_subnet(**subnet_kwargs)
                 break
             except lib_exc.BadRequest as e:
                 is_overlapping_cidr = 'overlaps with another subnet' in str(e)
@@ -314,7 +327,7 @@ class BaseNetworkTest(tempest.test.BaseTestCase):
     @classmethod
     def create_member(cls, protocol_port, pool, ip_version=None):
         """Wrapper utility that returns a test member."""
-        ip_version = ip_version if ip_version is not None else cls._ip_version
+        ip_version = ip_version or cls._ip_version
         member_address = "fd00::abcd" if ip_version == 6 else "10.0.9.46"
         body = cls.client.create_member(address=member_address,
                                         protocol_port=protocol_port,
