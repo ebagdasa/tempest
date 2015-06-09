@@ -15,6 +15,7 @@
 import functools
 
 from oslo_log import log as logging
+import six
 
 from tempest import config
 from tempest.scenario import manager
@@ -26,12 +27,13 @@ LOG = logging.getLogger(__name__)
 
 
 class TestGettingAddress(manager.NetworkScenarioTest):
-    """Create network with 2 subnets: IPv4 and IPv6 in a given address mode
+    """Create network with subnets: one IPv4 and
+    one or few IPv6 in a given address mode
     Boot 2 VMs on this network
     Allocate and assign 2 FIP4
-    Check that vNIC of server matches port data from OpenStack DB
-    Ping4 tenant IPv4 of one VM from another one
-    Will do the same with ping6 when available in VM
+    Check that vNICs of all VMs gets all addresses actually assigned
+    Ping4 to one VM from another one
+    If ping6 available in VM, do ping6 to all v6 addresses
     """
 
     @classmethod
@@ -91,7 +93,7 @@ class TestGettingAddress(manager.NetworkScenarioTest):
     @staticmethod
     def define_server_ips(srv):
         ips = {'4': None, '6': []}
-        for net_name, nics in srv['addresses'].iteritems():
+        for net_name, nics in six.iteritems(srv['addresses']):
             for nic in nics:
                 if nic['version'] == 6:
                     ips['6'].append(nic['addr'])
@@ -117,25 +119,25 @@ class TestGettingAddress(manager.NetworkScenarioTest):
         self.prepare_network(address6_mode=address6_mode,
                              n_subnets6=n_subnets6)
 
-        ssh1_4, ips_from_api_1 = self.prepare_server()
-        ssh2_4, ips_from_api_2 = self.prepare_server()
+        sshv4_1, ips_from_api_1 = self.prepare_server()
+        sshv4_2, ips_from_api_2 = self.prepare_server()
 
         def guest_has_address(ssh, addr):
             return addr in ssh.get_ip_list()
 
         # get addresses assigned to vNIC as reported by 'ip address' utility
-        ips_from_ip_1 = ssh1_4.get_ip_list()
-        ips_from_ip_2 = ssh2_4.get_ip_list()
+        ips_from_ip_1 = sshv4_1.get_ip_list()
+        ips_from_ip_2 = sshv4_2.get_ip_list()
         self.assertIn(ips_from_api_1['4'], ips_from_ip_1)
         self.assertIn(ips_from_api_2['4'], ips_from_ip_2)
         for i in range(n_subnets6):
             # v6 should be configured since the image supports it
             # It can take time for ipv6 automatic address to get assigned
             srv1_v6_addr_assigned = functools.partial(
-                guest_has_address, ssh1_4, ips_from_api_1['6'][i])
+                guest_has_address, sshv4_1, ips_from_api_1['6'][i])
 
             srv2_v6_addr_assigned = functools.partial(
-                guest_has_address, ssh2_4, ips_from_api_2['6'][i])
+                guest_has_address, sshv4_2, ips_from_api_2['6'][i])
 
             self.assertTrue(test.call_until_true(srv1_v6_addr_assigned,
                                                  CONF.compute.ping_timeout, 1))
@@ -143,19 +145,19 @@ class TestGettingAddress(manager.NetworkScenarioTest):
             self.assertTrue(test.call_until_true(srv2_v6_addr_assigned,
                                                  CONF.compute.ping_timeout, 1))
 
-        result = ssh1_4.ping_host(ips_from_api_2['4'])
+        result = sshv4_1.ping_host(ips_from_api_2['4'])
         self.assertIn('0% packet loss', result)
-        result = ssh2_4.ping_host(ips_from_api_1['4'])
+        result = sshv4_2.ping_host(ips_from_api_1['4'])
         self.assertIn('0% packet loss', result)
 
         # Some VM (like cirros) may not have ping6 utility
-        result = ssh1_4.exec_command('whereis ping6')
+        result = sshv4_1.exec_command('whereis ping6')
         is_ping6 = False if result == 'ping6:\n' else True
         if is_ping6:
             for i in range(n_subnets6):
-                result = ssh1_4.ping_host(ips_from_api_2['6'][i])
+                result = sshv4_1.ping_host(ips_from_api_2['6'][i])
                 self.assertIn('0% packet loss', result)
-                result = ssh2_4.ping_host(ips_from_api_1['6'][i])
+                result = sshv4_2.ping_host(ips_from_api_1['6'][i])
                 self.assertIn('0% packet loss', result)
         else:
             LOG.warning('Ping6 is not available, skipping')
@@ -169,17 +171,6 @@ class TestGettingAddress(manager.NetworkScenarioTest):
     @test.services('compute', 'network')
     def test_dhcp6_stateless_from_os(self):
         self._prepare_and_test(address6_mode='dhcpv6-stateless')
-
-
-class TestGettingMultipleAddresses(TestGettingAddress):
-    """Create network with 3 subnets: IPv4 and 2 IPv6 in a given address mode
-    Boot 2 VMs on this network
-    Allocate and assign 2 FIP4
-    Open ssh connection to both VMs via FIP4 addresses
-    Check that vNIC of server matches port data from OpenStack DB
-    Ping4 IPv4(internal) of one VM from another one
-    Will do the same with ping6 when available in VMs
-    """
 
     @test.idempotent_id('7ab23f41-833b-4a16-a7c9-5b42fe6d4123')
     @test.services('compute', 'network')
